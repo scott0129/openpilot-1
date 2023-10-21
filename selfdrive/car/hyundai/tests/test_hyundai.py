@@ -21,6 +21,7 @@ NO_DATES_PLATFORMS = {
   CAR.SANTA_CRUZ_1ST_GEN,
   CAR.TUCSON_4TH_GEN,
   CAR.TUCSON_HYBRID_4TH_GEN,
+  CAR.TUCSON_PHEV,
   # CAN
   CAR.ELANTRA,
   CAR.ELANTRA_GT_I30,
@@ -179,6 +180,7 @@ class TestHyundaiFingerprint(unittest.TestCase):
       CAR.GENESIS_G70_2020,
       CAR.TUCSON_4TH_GEN,         # shared platform code and part number
       CAR.TUCSON_HYBRID_4TH_GEN,
+      CAR.TUCSON_PHEV,
     }
     excluded_platforms |= CANFD_CAR - EV_CAR  # shared platform codes
     excluded_platforms |= NO_DATES_PLATFORMS  # date codes are required to match
