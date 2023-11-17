@@ -1,4 +1,4 @@
-Version 0.9.5 (2023-11-17)
+Version 0.9.5 (2023-11-16)
 ========================
 * New driving model
   * Improved navigate on openpilot performance using navigation instructions as an additional model input
@@ -8,12 +8,11 @@ Version 0.9.5 (2023-11-17)
 * Hyundai Azera 2022 support thanks to sunnyhaibin!
 * Hyundai Azera Hybrid 2020 support thanks to chanhojung and haram-KONA!
 * Hyundai Custin 2023 support thanks to sunnyhaibin and Saber422!
-* Hyundai Ioniq 6 2023 support thanks to sunnyhaibin and alamo3!
+* Hyundai Ioniq 6 2023 support thanks to sunnyhaibin, alamo3, and sshane!
 * Hyundai Kona Electric 2023 (Korean version) support thanks to sunnyhaibin and haram-KONA!
 * Kia K8 Hybrid (with HDA II) 2023 support thanks to sunnyhaibin!
-* Kia Optima Hybrid 2019 support
 * Kia Sorento Hybrid 2023 support thanks to sunnyhaibin!
-* Lexus GS F 2016 support thanks to snyperifle!
+* Kia Optima Hybrid 2019 support
 * Lexus IS 2023 support thanks to L3R5!
 
 Version 0.9.4 (2023-07-27)

@@ -56,7 +56,7 @@ AddOption('--pc-thneed',
 AddOption('--minimal',
           action='store_false',
           dest='extras',
-          default=os.path.islink(Dir('#rednose/').abspath), # minimal by default on release branch (where rednose is not a link)
+          default=os.path.islink(Dir('#laika/').abspath),
           help='the minimum build to run openpilot. no tests, tools, etc.')
 
 ## Architecture name breakdown (arch)
@@ -234,7 +234,8 @@ if GetOption('compile_db'):
   env.CompilationDatabase('compile_commands.json')
 
 # Setup cache dir
-cache_dir = '/data/scons_cache' if AGNOS else '/tmp/scons_cache'
+default_cache_dir = '/data/scons_cache' if AGNOS else '/tmp/scons_cache'
+cache_dir = ARGUMENTS.get('cache_dir', default_cache_dir)
 CacheDir(cache_dir)
 Clean(["."], cache_dir)
 
