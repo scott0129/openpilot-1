@@ -1,6 +1,6 @@
-from openpilot.common.numpy_fast import clip
-from openpilot.selfdrive.car import CanBusBase
-from openpilot.selfdrive.car.hyundai.values import HyundaiFlags
+from common.numpy_fast import clip
+from selfdrive.car import CanBusBase
+from selfdrive.car.hyundai.values import HyundaiFlags
 
 
 class CanBus(CanBusBase):
@@ -35,43 +35,36 @@ class CanBus(CanBusBase):
     return self._cam
 
 
-def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_steer):
+def create_steering_messages(packer, CP, CAN, enabled, lat_active, apply_steer , lateral_paused, blinking_icon):
 
   ret = []
 
   values = {
     "LKA_MODE": 2,
-    "LKA_ICON": 2 if enabled else 1,
+    "LKA_ICON": 2 if lat_active else 3 if blinking_icon else 1 if lateral_paused else 0,
     "TORQUE_REQUEST": apply_steer,
     "LKA_ASSIST": 0,
     "STEER_REQ": 1 if lat_active else 0,
     "STEER_MODE": 0,
-    "HAS_LANE_SAFETY": 0,  # hide LKAS settings
+    "SET_ME_1": 0,
     "NEW_SIGNAL_1": 0,
     "NEW_SIGNAL_2": 0,
   }
 
   if CP.flags & HyundaiFlags.CANFD_HDA2:
-    hda2_lkas_msg = "LKAS_ALT" if CP.flags & HyundaiFlags.CANFD_HDA2_ALT_STEERING else "LKAS"
     if CP.openpilotLongitudinalControl:
       ret.append(packer.make_can_msg("LFA", CAN.ECAN, values))
-    ret.append(packer.make_can_msg(hda2_lkas_msg, CAN.ACAN, values))
+    ret.append(packer.make_can_msg("LKAS", CAN.ACAN, values))
   else:
     ret.append(packer.make_can_msg("LFA", CAN.ECAN, values))
 
   return ret
 
-def create_suppress_lfa(packer, CAN, hda2_lfa_block_msg, hda2_alt_steering):
-  suppress_msg = "CAM_0x362" if hda2_alt_steering else "CAM_0x2a4"
-  msg_bytes = 32 if hda2_alt_steering else 24
-
-  values = {f"BYTE{i}": hda2_lfa_block_msg[f"BYTE{i}"] for i in range(3, msg_bytes) if i != 7}
-  values["COUNTER"] = hda2_lfa_block_msg["COUNTER"]
-  values["SET_ME_0"] = 0
-  values["SET_ME_0_2"] = 0
-  values["LEFT_LANE_LINE"] = 0
-  values["RIGHT_LANE_LINE"] = 0
-  return packer.make_can_msg(suppress_msg, CAN.ACAN, values)
+def create_cam_0x2a4(packer, CAN, cam_0x2a4):
+  values = {f"BYTE{i}": cam_0x2a4[f"BYTE{i}"] for i in range(3, 24)}
+  values['COUNTER'] = cam_0x2a4['COUNTER']
+  values["BYTE7"] = 0
+  return packer.make_can_msg("CAM_0x2a4", CAN.ACAN, values)
 
 def create_buttons(packer, CP, CAN, cnt, btn):
   values = {
@@ -113,10 +106,10 @@ def create_acc_cancel(packer, CP, CAN, cruise_info_copy):
   })
   return packer.make_can_msg("SCC_CONTROL", CAN.ECAN, values)
 
-def create_lfahda_cluster(packer, CAN, enabled):
+def create_lfahda_cluster(packer, CAN, enabled, lat_active, lateral_paused, blinking_icon):
   values = {
     "HDA_ICON": 1 if enabled else 0,
-    "LFA_ICON": 2 if enabled else 0,
+    "LFA_ICON": 2 if lat_active else 3 if blinking_icon else 1 if lateral_paused else 0,
   }
   return packer.make_can_msg("LFAHDA_CLUSTER", CAN.ECAN, values)
 

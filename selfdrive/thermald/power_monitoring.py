@@ -1,11 +1,12 @@
-import time
 import threading
 from typing import Optional
 
-from openpilot.common.params import Params, put_nonblocking
-from openpilot.system.hardware import HARDWARE
-from openpilot.system.swaglog import cloudlog
-from openpilot.selfdrive.statsd import statlog
+from common.numpy_fast import interp
+from common.params import Params, put_nonblocking
+from common.realtime import sec_since_boot
+from system.hardware import HARDWARE
+from system.swaglog import cloudlog
+from selfdrive.statsd import statlog
 
 CAR_VOLTAGE_LOW_PASS_K = 0.011 # LPF gain for 45s tau (dt/tau / (dt/tau + 1))
 
@@ -15,7 +16,6 @@ CAR_CHARGING_RATE_W = 45
 
 VBATT_PAUSE_CHARGING = 11.8           # Lower limit on the LPF car battery voltage
 VBATT_INSTANT_PAUSE_CHARGING = 7.0    # Lower limit on the instant car battery voltage measurements to avoid triggering on instant power loss
-MAX_TIME_OFFROAD_S = 30*3600
 MIN_ON_TIME_S = 3600
 DELAY_SHUTDOWN_TIME_S = 300 # Wait at least DELAY_SHUTDOWN_TIME_S seconds after offroad_time to shutdown.
 VOLTAGE_SHUTDOWN_MIN_OFFROAD_TIME_S = 60
@@ -41,7 +41,7 @@ class PowerMonitoring:
   # Calculation tick
   def calculate(self, voltage: Optional[int], ignition: bool):
     try:
-      now = time.monotonic()
+      now = sec_since_boot()
 
       # If peripheralState is None, we're probably not in a car, so we don't care
       if voltage is None:
@@ -113,13 +113,17 @@ class PowerMonitoring:
     if offroad_timestamp is None:
       return False
 
-    now = time.monotonic()
+    max_time_offroad_s = interp(int(self.params.get("MaxTimeOffroad", encoding="utf8")),
+                                [0, 1,  2,  3,   4,   5,   6,    7,    8,     9,    10,    11,     12],
+                                [0, 5, 30, 60, 180, 300, 600, 1800, 3600, 10800, 18000, 36000, 108000])
+
+    now = sec_since_boot()
     should_shutdown = False
     offroad_time = (now - offroad_timestamp)
     low_voltage_shutdown = (self.car_voltage_mV < (VBATT_PAUSE_CHARGING * 1e3) and
                             self.car_voltage_instant_mV > (VBATT_INSTANT_PAUSE_CHARGING * 1e3) and
                             offroad_time > VOLTAGE_SHUTDOWN_MIN_OFFROAD_TIME_S)
-    should_shutdown |= offroad_time > MAX_TIME_OFFROAD_S
+    should_shutdown |= (offroad_time > max_time_offroad_s) if max_time_offroad_s != 0 else False
     should_shutdown |= low_voltage_shutdown
     should_shutdown |= (self.car_battery_capacity_uWh <= 0)
     should_shutdown &= not ignition

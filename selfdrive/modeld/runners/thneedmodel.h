@@ -1,7 +1,5 @@
 #pragma once
 
-#include <string>
-
 #include "selfdrive/modeld/runners/runmodel.h"
 #include "selfdrive/modeld/thneed/thneed.h"
 

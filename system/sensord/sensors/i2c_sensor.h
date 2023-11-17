@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <unistd.h>
-#include <vector>
 #include "cereal/gen/cpp/log.capnp.h"
 
 #include "common/i2c.h"

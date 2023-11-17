@@ -1,6 +1,6 @@
 #pragma once
 #include <eigen3/Eigen/Dense>
-#include "common/transformations/coordinates.hpp"
+#include "coordinates.hpp"
 
 
 Eigen::Quaterniond ensure_unique(Eigen::Quaterniond quat);

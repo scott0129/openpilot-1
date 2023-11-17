@@ -16,10 +16,11 @@ public:
   ~VideoWriter();
 private:
   std::string vid_path, lock_path;
+
   FILE *of = nullptr;
 
   AVCodecContext *codec_ctx;
   AVFormatContext *ofmt_ctx;
   AVStream *out_stream;
-  bool remuxing;
+  bool remuxing, raw;
 };

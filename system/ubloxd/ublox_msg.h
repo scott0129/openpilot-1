@@ -2,11 +2,10 @@
 
 #include <cassert>
 #include <cstdint>
-#include <ctime>
 #include <memory>
 #include <string>
 #include <unordered_map>
-#include <utility>
+#include <ctime>
 
 #include "cereal/messaging/messaging.h"
 #include "common/util.h"
@@ -52,7 +51,7 @@ namespace ublox {
     assert(msg.size() > 2);
 
     uint8_t ck_a = 0, ck_b = 0;
-    for (int i = 2; i < msg.size(); i++) {
+    for(int i = 2; i < msg.size(); i++) {
       ck_a = (ck_a + msg[i]) & 0xFF;
       ck_b = (ck_b + ck_a) & 0xFF;
     }

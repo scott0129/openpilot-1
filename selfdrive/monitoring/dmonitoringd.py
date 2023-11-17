@@ -4,20 +4,25 @@ import gc
 import cereal.messaging as messaging
 from cereal import car
 from cereal import log
-from openpilot.common.params import Params, put_bool_nonblocking
-from openpilot.common.realtime import set_realtime_priority
-from openpilot.selfdrive.controls.lib.events import Events
-from openpilot.selfdrive.monitoring.driver_monitor import DriverStatus
+from common.params import Params, put_bool_nonblocking
+from common.realtime import set_realtime_priority
+from selfdrive.controls.lib.events import Events
+from selfdrive.monitoring.driver_monitor import DriverStatus
+from selfdrive.monitoring.hands_on_wheel_monitor import HandsOnWheelStatus
 
 
-def dmonitoringd_thread():
+def dmonitoringd_thread(sm=None, pm=None):
   gc.disable()
   set_realtime_priority(2)
 
-  pm = messaging.PubMaster(['driverMonitoringState'])
-  sm = messaging.SubMaster(['driverStateV2', 'liveCalibration', 'carState', 'controlsState', 'modelV2'], poll=['driverStateV2'])
+  if pm is None:
+    pm = messaging.PubMaster(['driverMonitoringState'])
+
+  if sm is None:
+    sm = messaging.SubMaster(['driverStateV2', 'liveCalibration', 'carState', 'controlsState', 'modelV2'], poll=['driverStateV2'])
 
   driver_status = DriverStatus(rhd_saved=Params().get_bool("IsRhdDetected"))
+  hands_on_wheel_status = HandsOnWheelStatus()
 
   sm['liveCalibration'].calStatus = log.LiveCalibrationData.Status.invalid
   sm['liveCalibration'].rpyCalib = [0, 0, 0]
@@ -26,6 +31,8 @@ def dmonitoringd_thread():
 
   v_cruise_last = 0
   driver_engaged = False
+  steering_wheel_engaged = False
+  hands_on_wheel_monitoring_enabled = Params().get_bool("HandsOnWheelMonitoring")
 
   # 10Hz <- dmonitoringmodeld
   while True:
@@ -37,10 +44,13 @@ def dmonitoringd_thread():
     # Get interaction
     if sm.updated['carState']:
       v_cruise = sm['carState'].cruiseState.speed
-      driver_engaged = len(sm['carState'].buttonEvents) > 0 or \
-                        v_cruise != v_cruise_last or \
-                        sm['carState'].steeringPressed or \
-                        sm['carState'].gasPressed
+      steering_wheel_engaged = len(sm['carState'].buttonEvents) > 0 or \
+        v_cruise != v_cruise_last or \
+        sm['carState'].steeringPressed
+      driver_engaged = steering_wheel_engaged or sm['carState'].gasPressed
+      # Update events and state from hands on wheel monitoring status when steering wheel in engaged
+      if steering_wheel_engaged and hands_on_wheel_monitoring_enabled:
+        hands_on_wheel_status.update(Events(), True, sm['controlsState'].enabled, sm['carState'].vEgo)
       v_cruise_last = v_cruise
 
     if sm.updated['modelV2']:
@@ -57,6 +67,9 @@ def dmonitoringd_thread():
 
     # Update events from driver state
     driver_status.update_events(events, driver_engaged, sm['controlsState'].enabled, sm['carState'].standstill)
+    # Update events and state from hands on wheel monitoring status
+    if hands_on_wheel_monitoring_enabled:
+      hands_on_wheel_status.update(events, steering_wheel_engaged, sm['controlsState'].enabled, sm['carState'].vEgo)
 
     # build driverMonitoringState packet
     dat = messaging.new_message('driverMonitoringState')
@@ -77,6 +90,7 @@ def dmonitoringd_thread():
       "hiStdCount": driver_status.hi_stds,
       "isActiveMode": driver_status.active_monitoring_mode,
       "isRHD": driver_status.wheel_on_right,
+      "handsOnWheelState": hands_on_wheel_status.hands_on_wheel_state,
     }
     pm.send('driverMonitoringState', dat)
 
@@ -86,8 +100,8 @@ def dmonitoringd_thread():
      driver_status.wheel_on_right == (driver_status.wheelpos_learner.filtered_stat.M > driver_status.settings._WHEELPOS_THRESHOLD)):
       put_bool_nonblocking("IsRhdDetected", driver_status.wheel_on_right)
 
-def main():
-  dmonitoringd_thread()
+def main(sm=None, pm=None):
+  dmonitoringd_thread(sm, pm)
 
 
 if __name__ == '__main__':

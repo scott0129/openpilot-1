@@ -9,21 +9,23 @@ from typing import List, Tuple, Union
 
 from cereal import log
 import cereal.messaging as messaging
-import openpilot.selfdrive.sentry as sentry
-from openpilot.common.basedir import BASEDIR
-from openpilot.common.params import Params, ParamKeyType
-from openpilot.common.text_window import TextWindow
-from openpilot.selfdrive.boardd.set_time import set_time
-from openpilot.system.hardware import HARDWARE, PC
-from openpilot.selfdrive.manager.helpers import unblock_stdout, write_onroad_params
-from openpilot.selfdrive.manager.process import ensure_running
-from openpilot.selfdrive.manager.process_config import managed_processes
-from openpilot.selfdrive.athena.registration import register, UNREGISTERED_DONGLE_ID
-from openpilot.system.swaglog import cloudlog, add_file_handler
-from openpilot.system.version import is_dirty, get_commit, get_version, get_origin, get_short_branch, \
+import selfdrive.sentry as sentry
+from common.basedir import BASEDIR
+from common.params import Params, ParamKeyType
+from common.text_window import TextWindow
+from selfdrive.boardd.set_time import set_time
+from system.hardware import HARDWARE, PC
+from selfdrive.manager.helpers import unblock_stdout, write_onroad_params
+from selfdrive.manager.process import ensure_running
+from selfdrive.manager.process_config import managed_processes
+from selfdrive.athena.registration import register, UNREGISTERED_DONGLE_ID
+from system.swaglog import cloudlog, add_file_handler
+from system.version import is_dirty, get_commit, get_version, get_origin, get_short_branch, \
                            get_normalized_origin, terms_version, training_version, \
                            is_tested_branch, is_release_branch
 
+
+sys.path.append(os.path.join(BASEDIR, "third_party/mapd"))
 
 
 def manager_init() -> None:
@@ -46,6 +48,65 @@ def manager_init() -> None:
     ("LanguageSetting", "main_en"),
     ("OpenpilotEnabledToggle", "1"),
     ("LongitudinalPersonality", str(log.LongitudinalPersonality.standard)),
+
+    ("AccMadsCombo", "1"),
+    ("AutoLaneChangeTimer", "0"),
+    ("AutoLaneChangeBsmDelay", "1"),
+    ("BelowSpeedPause", "0"),
+    ("BrakeLights", "0"),
+    ("BrightnessControl", "0"),
+    ("CustomTorqueLateral", "0"),
+    ("CameraControl", "2"),
+    ("CameraControlToggle", "0"),
+    ("CameraOffset", "0"),
+    ("CarModel", ""),
+    ("CarModelText", ""),
+    ("ChevronInfo", "1"),
+    ("MadsCruiseMain", "1"),
+    ("CustomBootScreen", "0"),
+    ("CustomOffsets", "0"),
+    ("DevUI", "1"),
+    ("DevUIInfo", "1"),
+    ("DisableOnroadUploads", "0"),
+    ("DisengageLateralOnBrake", "0"),
+    ("DynamicLaneProfile", "1"),
+    ("DynamicLaneProfileToggle", "0"),
+    ("EnableMads", "1"),
+    ("EnhancedScc", "0"),
+    ("GapAdjustCruise", "1"),
+    ("GapAdjustCruiseMax", "0"),
+    ("GapAdjustCruiseMin", "0"),
+    ("GapAdjustCruiseMode", "0"),
+    ("GapAdjustCruiseTr", "3"),
+    ("GpxDeleteAfterUpload", "1"),
+    ("GpxDeleteIfUploaded", "1"),
+    ("HandsOnWheelMonitoring", "0"),
+    ("HideVEgoUi", "0"),
+    ("LastSpeedLimitSignTap", "0"),
+    ("LkasToggle", "0"),
+    ("MadsIconToggle", "1"),
+    ("MaxTimeOffroad", "9"),
+    ("OnroadScreenOff", "-2"),
+    ("OnroadScreenOffBrightness", "50"),
+    ("OnroadScreenOffEvent", "1"),
+    ("PathOffset", "0"),
+    ("ReverseAccChange", "0"),
+    ("ScreenRecorder", "1"),
+    ("ShowDebugUI", "1"),
+    ("SpeedLimitControl", "1"),
+    ("SpeedLimitPercOffset", "1"),
+    ("SpeedLimitValueOffset", "0"),
+    ("SpeedLimitOffsetType", "0"),
+    ("StandStillTimer", "0"),
+    ("StockLongToyota", "0"),
+    ("TorqueDeadzoneDeg", "0"),
+    ("TorqueFriction", "1"),
+    ("TorqueMaxLatAccel", "250"),
+    ("TrueVEgoUi", "0"),
+    ("TurnSpeedControl", "0"),
+    ("TurnVisionControl", "0"),
+    ("VisionCurveLaneless", "0"),
+    ("VwAccType", "0"),
   ]
   if not PC:
     default_params.append(("LastUpdateTime", datetime.datetime.utcnow().isoformat().encode('utf8')))
@@ -57,6 +118,10 @@ def manager_init() -> None:
   for k, v in default_params:
     if params.get(k) is None:
       params.put(k, v)
+
+  # parameters set by Environment Variables
+  if os.getenv("HANDSMONITORING") is not None:
+    params.put_bool("HandsOnWheelMonitoring", bool(int(os.getenv("HANDSMONITORING", "0"))))
 
   # is this dashcam?
   if os.getenv("PASSIVE") is not None:
@@ -104,6 +169,9 @@ def manager_init() -> None:
                        commit=get_commit(),
                        dirty=is_dirty(),
                        device=HARDWARE.get_device_type())
+
+  if os.path.isfile(os.path.join(sentry.CRASHES_DIR, 'error.txt')):
+    os.remove(os.path.join(sentry.CRASHES_DIR, 'error.txt'))
 
 
 def manager_prepare() -> None:
@@ -220,6 +288,9 @@ def main() -> None:
   elif params.get_bool("DoShutdown"):
     cloudlog.warning("shutdown")
     HARDWARE.shutdown()
+
+  if params.get_bool("HotspotOnBoot"):
+    os.system('nmcli con up Hotspot')
 
 
 if __name__ == "__main__":

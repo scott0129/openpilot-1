@@ -1,4 +1,10 @@
 #pragma once
 
-#include "selfdrive/modeld/runners/runmodel.h"
-#include "selfdrive/modeld/runners/snpemodel.h"
+#include "runmodel.h"
+#include "snpemodel.h"
+
+#if defined(USE_THNEED)
+#include "thneedmodel.h"
+#elif defined(USE_ONNX_MODEL)
+#include "onnxmodel.h"
+#endif

@@ -4,11 +4,11 @@ import subprocess
 from typing import List, Optional
 from functools import lru_cache
 
-from openpilot.common.basedir import BASEDIR
-from openpilot.system.swaglog import cloudlog
+from common.basedir import BASEDIR
+from system.swaglog import cloudlog
 
 RELEASE_BRANCHES = ['release3-staging', 'dashcam3-staging', 'release3', 'dashcam3', 'nightly']
-TESTED_BRANCHES = RELEASE_BRANCHES + ['devel', 'devel-staging']
+TESTED_BRANCHES = RELEASE_BRANCHES + ['devel', 'devel-staging', 'staging-c3', 'release-c3']
 
 training_version: bytes = b"0.2.0"
 terms_version: bytes = b"2"
@@ -90,7 +90,7 @@ def is_comma_remote() -> bool:
   if origin is None:
     return False
 
-  return origin.startswith(('git@github.com:commaai', 'https://github.com/commaai'))
+  return origin.startswith('git@github.com:sunnyhaibin') or origin.startswith('https://github.com/sunnyhaibin')
 
 
 @cache
@@ -125,9 +125,24 @@ def is_dirty() -> bool:
 
   return dirty
 
+@cache
+def get_branch_type() -> str:
+  short_branch = get_short_branch()
+
+  if short_branch.startswith("dev-"):
+    return "development"
+  elif short_branch.startswith("staging-"):
+    return "staging"
+  elif short_branch.startswith("release-"):
+    return "release"
+  elif is_tested_branch():
+    return "release"
+  else:
+    return "master"
+
 
 if __name__ == "__main__":
-  from openpilot.common.params import Params
+  from common.params import Params
 
   params = Params()
   params.put("TermsVersion", terms_version)

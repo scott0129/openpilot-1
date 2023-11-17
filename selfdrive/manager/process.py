@@ -8,14 +8,17 @@ from typing import Optional, Callable, List, ValuesView
 from abc import ABC, abstractmethod
 from multiprocessing import Process
 
-from setproctitle import setproctitle
+from setproctitle import setproctitle  # pylint: disable=no-name-in-module
 
-from cereal import car, log
 import cereal.messaging as messaging
-import openpilot.selfdrive.sentry as sentry
-from openpilot.common.basedir import BASEDIR
-from openpilot.common.params import Params
-from openpilot.system.swaglog import cloudlog
+import selfdrive.sentry as sentry
+from cereal import car
+from common.basedir import BASEDIR
+from common.params import Params
+from common.realtime import sec_since_boot
+from system.swaglog import cloudlog
+from system.hardware import HARDWARE
+from cereal import log
 
 WATCHDOG_FN = "/dev/shm/wd_"
 ENABLE_WATCHDOG = os.getenv("NO_WATCHDOG") is None
@@ -37,7 +40,7 @@ def launcher(proc: str, name: str) -> None:
     sentry.set_tag("daemon", name)
 
     # exec the process
-    mod.main()
+    getattr(mod, 'main')()
   except KeyboardInterrupt:
     cloudlog.warning(f"child {proc} got SIGINT")
   except Exception:
@@ -64,15 +67,19 @@ def join_process(process: Process, timeout: float) -> None:
 
 
 class ManagerProcess(ABC):
+  unkillable = False
   daemon = False
   sigkill = False
-  should_run: Callable[[bool, Params, car.CarParams], bool]
+  onroad = True
+  offroad = False
+  callback: Optional[Callable[[bool, Params, car.CarParams], bool]] = None
   proc: Optional[Process] = None
   enabled = True
   name = ""
 
   last_watchdog_time = 0
   watchdog_max_dt: Optional[int] = None
+  always_watchdog = False
   watchdog_seen = False
   shutting_down = False
 
@@ -88,7 +95,7 @@ class ManagerProcess(ABC):
     self.stop(sig=signal.SIGKILL)
     self.start()
 
-  def check_watchdog(self, started: bool) -> None:
+  def check_watchdog(self, started: bool, params: Params) -> None:
     if self.watchdog_max_dt is None or self.proc is None:
       return
 
@@ -96,14 +103,16 @@ class ManagerProcess(ABC):
       fn = WATCHDOG_FN + str(self.proc.pid)
       with open(fn, "rb") as f:
         # TODO: why can't pylint find struct.unpack?
-        self.last_watchdog_time = struct.unpack('Q', f.read())[0]
+        self.last_watchdog_time = struct.unpack('Q', f.read())[0] # pylint: disable=no-member
     except Exception:
       pass
 
-    dt = time.monotonic() - self.last_watchdog_time / 1e9
+    dt = sec_since_boot() - self.last_watchdog_time / 1e9
+
+    always_watchdog = self.always_watchdog and params.get_bool("IsOffroad") and self.proc.exitcode is not None
 
     if dt > self.watchdog_max_dt:
-      if self.watchdog_seen and ENABLE_WATCHDOG:
+      if (self.watchdog_seen or always_watchdog) and ENABLE_WATCHDOG:
         cloudlog.error(f"Watchdog timeout for {self.name} (exitcode {self.proc.exitcode}) restarting ({started=})")
         self.restart()
     else:
@@ -126,11 +135,22 @@ class ManagerProcess(ABC):
 
       join_process(self.proc, 5)
 
-      # If process failed to die send SIGKILL
+      # If process failed to die send SIGKILL or reboot
       if self.proc.exitcode is None and retry:
-        cloudlog.info(f"killing {self.name} with SIGKILL")
-        self.signal(signal.SIGKILL)
-        self.proc.join()
+        if self.unkillable:
+          cloudlog.critical(f"unkillable process {self.name} failed to exit! rebooting in 15 if it doesn't die")
+          join_process(self.proc, 15)
+
+          if self.proc.exitcode is None:
+            cloudlog.critical(f"unkillable process {self.name} failed to die!")
+            os.system("date >> /data/unkillable_reboot")
+            os.sync()
+            HARDWARE.reboot()
+            raise RuntimeError
+        else:
+          cloudlog.info(f"killing {self.name} with SIGKILL")
+          self.signal(signal.SIGKILL)
+          self.proc.join()
 
     ret = self.proc.exitcode
     cloudlog.info(f"{self.name} is dead with {ret}")
@@ -168,15 +188,18 @@ class ManagerProcess(ABC):
 
 
 class NativeProcess(ManagerProcess):
-  def __init__(self, name, cwd, cmdline, should_run, enabled=True, sigkill=False, watchdog_max_dt=None):
+  def __init__(self, name, cwd, cmdline, enabled=True, onroad=True, offroad=False, callback=None, unkillable=False, sigkill=False, watchdog_max_dt=None, always_watchdog=False):
     self.name = name
     self.cwd = cwd
     self.cmdline = cmdline
-    self.should_run = should_run
     self.enabled = enabled
+    self.onroad = onroad
+    self.offroad = offroad
+    self.callback = callback
+    self.unkillable = unkillable
     self.sigkill = sigkill
     self.watchdog_max_dt = watchdog_max_dt
-    self.launcher = nativelauncher
+    self.always_watchdog = always_watchdog
 
   def prepare(self) -> None:
     pass
@@ -191,21 +214,24 @@ class NativeProcess(ManagerProcess):
 
     cwd = os.path.join(BASEDIR, self.cwd)
     cloudlog.info(f"starting process {self.name}")
-    self.proc = Process(name=self.name, target=self.launcher, args=(self.cmdline, cwd, self.name))
+    self.proc = Process(name=self.name, target=nativelauncher, args=(self.cmdline, cwd, self.name))
     self.proc.start()
     self.watchdog_seen = False
     self.shutting_down = False
 
 
 class PythonProcess(ManagerProcess):
-  def __init__(self, name, module, should_run, enabled=True, sigkill=False, watchdog_max_dt=None):
+  def __init__(self, name, module, enabled=True, onroad=True, offroad=False, callback=None, unkillable=False, sigkill=False, watchdog_max_dt=None, always_watchdog=False):
     self.name = name
     self.module = module
-    self.should_run = should_run
     self.enabled = enabled
+    self.onroad = onroad
+    self.offroad = offroad
+    self.callback = callback
+    self.unkillable = unkillable
     self.sigkill = sigkill
     self.watchdog_max_dt = watchdog_max_dt
-    self.launcher = launcher
+    self.always_watchdog = always_watchdog
 
   def prepare(self) -> None:
     if self.enabled:
@@ -221,7 +247,7 @@ class PythonProcess(ManagerProcess):
       return
 
     cloudlog.info(f"starting python {self.module}")
-    self.proc = Process(name=self.name, target=self.launcher, args=(self.module, self.name))
+    self.proc = Process(name=self.name, target=launcher, args=(self.module, self.name))
     self.proc.start()
     self.watchdog_seen = False
     self.shutting_down = False
@@ -235,11 +261,9 @@ class DaemonProcess(ManagerProcess):
     self.module = module
     self.param_name = param_name
     self.enabled = enabled
+    self.onroad = True
+    self.offroad = True
     self.params = None
-
-  @staticmethod
-  def should_run(started, params, CP):
-    return True
 
   def prepare(self) -> None:
     pass
@@ -261,7 +285,7 @@ class DaemonProcess(ManagerProcess):
         pass
 
     cloudlog.info(f"starting daemon {self.name}")
-    proc = subprocess.Popen(['python', '-m', self.module],
+    proc = subprocess.Popen(['python', '-m', self.module],  # pylint: disable=subprocess-popen-preexec-fn
                                stdin=open('/dev/null'),
                                stdout=open('/dev/null', 'w'),
                                stderr=open('/dev/null', 'w'),
@@ -280,12 +304,26 @@ def ensure_running(procs: ValuesView[ManagerProcess], started: bool, params=None
 
   running = []
   for p in procs:
-    if p.enabled and p.name not in not_run and p.should_run(started, params, CP):
+    # Conditions that make a process run
+    run = any((
+      p.offroad and not started,
+      p.onroad and started,
+    ))
+    if p.callback is not None and None not in (params, CP):
+      run = run or p.callback(started, params, CP)
+
+    # Conditions that block a process from starting
+    run = run and not any((
+      not p.enabled,
+      p.name in not_run,
+    ))
+
+    if run:
       p.start()
       running.append(p)
     else:
       p.stop(block=False)
 
-    p.check_watchdog(started)
+    p.check_watchdog(started, params)
 
   return running

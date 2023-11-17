@@ -1,9 +1,5 @@
 #pragma once
 
-#include <map>
-#include <memory>
-#include <string>
-
 #include <QDateTime>
 #include <QFutureSynchronizer>
 
@@ -54,7 +50,7 @@ class Segment : public QObject {
   Q_OBJECT
 
 public:
-  Segment(int n, const SegmentFile &files, uint32_t flags);
+  Segment(int n, const SegmentFile &files, uint32_t flags, const std::set<cereal::Event::Which> &allow = {});
   ~Segment();
   inline bool isLoaded() const { return !loading_ && !abort_; }
 
@@ -72,4 +68,5 @@ protected:
   std::atomic<int> loading_ = 0;
   QFutureSynchronizer<void> synchronizer_;
   uint32_t flags;
+  std::set<cereal::Event::Which> allow;
 };

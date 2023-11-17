@@ -14,6 +14,10 @@ AGNOS = TICI
 
 Decider('MD5-timestamp')
 
+AddOption('--extras',
+          action='store_true',
+          help='build misc extras, like setup and installer files')
+
 AddOption('--kaitai',
           action='store_true',
           help='Regenerate kaitai struct parsers')
@@ -25,10 +29,6 @@ AddOption('--asan',
 AddOption('--ubsan',
           action='store_true',
           help='turn on UBSan')
-
-AddOption('--coverage',
-          action='store_true',
-          help='build with test coverage options')
 
 AddOption('--clazy',
           action='store_true',
@@ -48,34 +48,34 @@ AddOption('--external-sconscript',
           dest='external_sconscript',
           help='add an external SConscript to the build')
 
+AddOption('--no-thneed',
+          action='store_true',
+          dest='no_thneed',
+          help='avoid using thneed')
+
 AddOption('--pc-thneed',
           action='store_true',
           dest='pc_thneed',
           help='use thneed on pc')
 
-AddOption('--minimal',
+AddOption('--no-test',
           action='store_false',
-          dest='extras',
-          default=os.path.islink(Dir('#rednose/').abspath), # minimal by default on release branch (where rednose is not a link)
-          help='the minimum build to run openpilot. no tests, tools, etc.')
+          dest='test',
+          default=os.path.islink(Dir('#laika/').abspath),
+          help='skip building test files')
 
-## Architecture name breakdown (arch)
-## - larch64: linux tici aarch64
-## - aarch64: linux pc aarch64
-## - x86_64:  linux pc x64
-## - Darwin:  mac x64 or arm64
 real_arch = arch = subprocess.check_output(["uname", "-m"], encoding='utf8').rstrip()
 if platform.system() == "Darwin":
   arch = "Darwin"
   brew_prefix = subprocess.check_output(['brew', '--prefix'], encoding='utf8').strip()
-elif arch == "aarch64" and AGNOS:
+
+if arch == "aarch64" and AGNOS:
   arch = "larch64"
-assert arch in ["larch64", "aarch64", "x86_64", "Darwin"]
 
 lenv = {
   "PATH": os.environ['PATH'],
   "LD_LIBRARY_PATH": [Dir(f"#third_party/acados/{arch}/lib").abspath],
-  "PYTHONPATH": Dir("#").abspath + ':' + Dir(f"#third_party/acados").abspath,
+  "PYTHONPATH": Dir("#").abspath,
 
   "ACADOS_SOURCE_DIR": Dir("#third_party/acados").abspath,
   "ACADOS_PYTHON_INTERFACE_PATH": Dir("#third_party/acados/acados_template").abspath,
@@ -117,8 +117,9 @@ else:
 
   # MacOS
   if arch == "Darwin":
+    yuv_dir = "mac" if real_arch != "arm64" else "mac_arm64"
     libpath = [
-      f"#third_party/libyuv/{arch}/lib",
+      f"#third_party/libyuv/{yuv_dir}/lib",
       f"#third_party/acados/{arch}/lib",
       f"{brew_prefix}/lib",
       f"{brew_prefix}/opt/openssl@3.0/lib",
@@ -132,25 +133,21 @@ else:
       f"{brew_prefix}/opt/openssl@3.0/include",
     ]
     lenv["DYLD_LIBRARY_PATH"] = lenv["LD_LIBRARY_PATH"]
-  # Linux
+  # Linux 86_64
   else:
     libpath = [
-      f"#third_party/acados/{arch}/lib",
-      f"#third_party/libyuv/{arch}/lib",
-      f"#third_party/mapbox-gl-native-qt/{arch}",
+      "#third_party/acados/x86_64/lib",
+      "#third_party/snpe/x86_64-linux-clang",
+      "#third_party/libyuv/x64/lib",
+      "#third_party/mapbox-gl-native-qt/x86_64",
       "#cereal",
       "#common",
       "/usr/lib",
       "/usr/local/lib",
     ]
-
-    if arch == "x86_64":
-      libpath += [
-        f"#third_party/snpe/{arch}"
-      ]
-      rpath += [
-        Dir(f"#third_party/snpe/{arch}").abspath,
-      ]
+    rpath += [
+      Dir("#third_party/snpe/x86_64-linux-clang").abspath,
+    ]
 
 if GetOption('asan'):
   ccflags = ["-fsanitize=address", "-fno-omit-frame-pointer"]
@@ -196,6 +193,7 @@ env = Environment(
     "#third_party/catch2/include",
     "#third_party/libyuv/include",
     "#third_party/json11",
+    "#third_party/curl/include",
     "#third_party/linux/include",
     "#third_party/snpe/include",
     "#third_party/mapbox-gl-native-qt/include",
@@ -248,6 +246,18 @@ def progress_function(node):
 if os.environ.get('SCONS_PROGRESS'):
   Progress(progress_function, interval=node_interval)
 
+SHARED = False
+
+# TODO: this can probably be removed
+def abspath(x):
+  if arch == 'aarch64':
+    pth = os.path.join("/data/pythonpath", x[0].path)
+    env.Depends(pth, x)
+    return File(pth)
+  else:
+    # rpath works elsewhere
+    return x[0].path.rsplit("/", 1)[1][:-3]
+
 # Cython build environment
 py_include = sysconfig.get_paths()['include']
 envCython = env.Clone()
@@ -258,6 +268,9 @@ envCython["CCFLAGS"].remove("-Werror")
 envCython["LIBS"] = []
 if arch == "Darwin":
   envCython["LINKFLAGS"] = ["-bundle", "-undefined", "dynamic_lookup"] + darwin_rpath_link_flags
+elif arch == "aarch64":
+  envCython["LINKFLAGS"] = ["-shared"]
+  envCython["LIBS"] = [os.path.basename(py_include)]
 else:
   envCython["LINKFLAGS"] = ["-pthread", "-shared"]
 
@@ -317,6 +330,7 @@ qt_flags = [
 qt_env['CXXFLAGS'] += qt_flags
 qt_env['LIBPATH'] += ['#selfdrive/ui']
 qt_env['LIBS'] = qt_libs
+qt_env['QT_MOCHPREFIX'] = cache_dir + '/moc_files/moc_'
 
 if GetOption("clazy"):
   checks = [
@@ -329,35 +343,33 @@ if GetOption("clazy"):
   qt_env['ENV']['CLAZY_IGNORE_DIRS'] = qt_dirs[0]
   qt_env['ENV']['CLAZY_CHECKS'] = ','.join(checks)
 
-Export('env', 'qt_env', 'arch', 'real_arch')
+Export('env', 'qt_env', 'arch', 'real_arch', 'SHARED')
 
-# Build common module
 SConscript(['common/SConscript'])
 Import('_common', '_gpucommon')
 
-common = [_common, 'json11']
-gpucommon = [_gpucommon]
+if SHARED:
+  common, gpucommon = abspath(common), abspath(gpucommon)
+else:
+  common = [_common, 'json11']
+  gpucommon = [_gpucommon]
 
 Export('common', 'gpucommon')
 
-# Build cereal and messaging
+# cereal and messaging are shared with the system
 SConscript(['cereal/SConscript'])
+if SHARED:
+  cereal = abspath([File('cereal/libcereal_shared.so')])
+  messaging = abspath([File('cereal/libmessaging_shared.so')])
+else:
+  cereal = [File('#cereal/libcereal.a')]
+  messaging = [File('#cereal/libmessaging.a')]
+  visionipc = [File('#cereal/libvisionipc.a')]
 
-cereal = [File('#cereal/libcereal.a')]
-messaging = [File('#cereal/libmessaging.a')]
-visionipc = [File('#cereal/libvisionipc.a')]
-messaging_python = [File('#cereal/messaging/messaging_pyx.so')]
-
-Export('cereal', 'messaging', 'messaging_python', 'visionipc')
-
-# Build other submodules
-SConscript([
-  'body/board/SConscript',
-  'opendbc/can/SConscript',
-  'panda/SConscript',
-])
+Export('cereal', 'messaging', 'visionipc')
 
 # Build rednose library and ekf models
+
 rednose_deps = [
   "#selfdrive/locationd/models/constants.py",
   "#selfdrive/locationd/models/gnss_helpers.py",
@@ -386,6 +398,7 @@ SConscript(['rednose/SConscript'])
 
 # Build system services
 SConscript([
+  'system/clocksd/SConscript',
   'system/proclogd/SConscript',
   'system/ubloxd/SConscript',
   'system/loggerd/SConscript',
@@ -398,7 +411,19 @@ if arch != "Darwin":
   ])
 
 # Build openpilot
+
+# build submodules
+SConscript([
+  'body/board/SConscript',
+  'cereal/SConscript',
+  'opendbc/can/SConscript',
+  'panda/SConscript',
+])
+
 SConscript(['third_party/SConscript'])
+
+SConscript(['common/kalman/SConscript'])
+SConscript(['common/transformations/SConscript'])
 
 SConscript(['selfdrive/boardd/SConscript'])
 SConscript(['selfdrive/controls/lib/lateral_mpc_lib/SConscript'])
@@ -408,7 +433,7 @@ SConscript(['selfdrive/navd/SConscript'])
 SConscript(['selfdrive/modeld/SConscript'])
 SConscript(['selfdrive/ui/SConscript'])
 
-if arch in ['x86_64', 'aarch64', 'Darwin'] and Dir('#tools/cabana/').exists() and GetOption('extras'):
+if (arch in ['x86_64', 'Darwin'] and Dir('#tools/cabana/').exists()) or GetOption('extras'):
   SConscript(['tools/replay/SConscript'])
   SConscript(['tools/cabana/SConscript'])
 

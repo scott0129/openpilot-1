@@ -1,8 +1,6 @@
 #pragma once
 
- #include <functional>
 #include <map>
-#include <memory>
 #include <mutex>
 #include <optional>
 #include <queue>
@@ -20,17 +18,10 @@ void release(int video0_fd, uint32_t handle);
 class MemoryManager {
   public:
     void init(int _video0_fd) { video0_fd = _video0_fd; }
-    ~MemoryManager();
-
-    template <class T>
-    auto alloc(int len, uint32_t *handle) {
-      return std::unique_ptr<T, std::function<void(void *)>>((T*)alloc_buf(len, handle), [this](void *ptr) { this->free(ptr); });
-    }
-
-  private:
-    void *alloc_buf(int len, uint32_t *handle);
+    void *alloc(int len, uint32_t *handle);
     void free(void *ptr);
-
+    ~MemoryManager();
+  private:
     std::mutex lock;
     std::map<void *, uint32_t> handle_lookup;
     std::map<void *, int> size_lookup;

@@ -1,14 +1,12 @@
 #pragma once
 
 #include <cstdint>
-#include <mutex>
 
 #include <sys/types.h>
 
 class I2CBus {
   private:
     int i2c_fd;
-    std::mutex m;
 
   public:
     I2CBus(uint8_t bus_id);

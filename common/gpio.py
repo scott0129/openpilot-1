@@ -1,4 +1,3 @@
-import os
 from functools import lru_cache
 from typing import Optional, List
 
@@ -27,9 +26,6 @@ def gpio_read(pin: int) -> Optional[bool]:
   return val
 
 def gpio_export(pin: int) -> None:
-  if os.path.isdir(f"/sys/class/gpio/gpio{pin}"):
-    return
-
   try:
     with open("/sys/class/gpio/export", 'w') as f:
       f.write(str(pin))

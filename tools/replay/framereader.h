@@ -4,7 +4,6 @@
 #include <string>
 #include <vector>
 
-#include "cereal/visionipc/visionbuf.h"
 #include "tools/replay/filereader.h"
 
 extern "C" {
@@ -23,18 +22,19 @@ public:
   bool load(const std::string &url, bool no_hw_decoder = false, std::atomic<bool> *abort = nullptr, bool local_cache = false,
             int chunk_size = -1, int retries = 0);
   bool load(const std::byte *data, size_t size, bool no_hw_decoder = false, std::atomic<bool> *abort = nullptr);
-  bool get(int idx, VisionBuf *buf);
+  bool get(int idx, uint8_t *yuv);
   int getYUVSize() const { return width * height * 3 / 2; }
   size_t getFrameCount() const { return packets.size(); }
   bool valid() const { return valid_; }
 
   int width = 0, height = 0;
+  int aligned_width = 0, aligned_height = 0;
 
 private:
   bool initHardwareDecoder(AVHWDeviceType hw_device_type);
-  bool decode(int idx, VisionBuf *buf);
+  bool decode(int idx, uint8_t *yuv);
   AVFrame * decodeFrame(AVPacket *pkt);
-  bool copyBuffers(AVFrame *f, VisionBuf *buf);
+  bool copyBuffers(AVFrame *f, uint8_t *yuv);
 
   std::vector<AVPacket*> packets;
   std::unique_ptr<AVFrame, AVFrameDeleter>av_frame_, hw_frame;
